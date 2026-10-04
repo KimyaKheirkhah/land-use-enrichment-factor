@@ -4,6 +4,8 @@ Measuring how land-use change is shaped by its surroundings. For every pixel tha
 
 > Developed in **June 2024** for the *Spatial & Land Use Planning* course of my MSc in GIS (K. N. Toosi University of Technology).
 > The notebook is published as originally written, with its explanations in Persian. This README describes it in English and adds a [2026 review](#review-2026) with one exact correction.
+>
+> **Part 1** (below) works on raster land-use maps with straight-line rings. **[Part 2](#part-2-network-distance-neighbourhoods-on-parcels)** takes the same idea to vector parcels, measuring distance along the street network.
 
 ---
 
@@ -81,19 +83,81 @@ The shape of every curve is unchanged, but several interpretations change:
 - **Vectorize.** The nested pixel loops can be replaced by a convolution per ring and per class, which gives identical counts in seconds.
 - **Close the loop.** Use the corrected curves to set the neighbourhood weights of a CA model (as in constrained CA, White & Engelen, 1993) and validate the simulation of 1380 → 1390 against the observed 1390 map.
 
+## Part 2: Network-distance neighbourhoods on parcels
+
+The second assignment of the course moved the same question from pixels to **real parcels**, and from straight-line rings to **distance along the street network**: what a resident or shop can actually reach on foot or by car.
+
+### Data and approach
+
+A vector dataset of an urban district (projected coordinates, metres): land-use parcels classified as residential (*maskooni*), commercial (*tejari*), services (*khadamati*), park, industrial (*sanati*) and vacant (*bayer*), plus restricted zones and a two-level street network.
+
+![Parcels, restricted zones and streets](figures/part2_orig_01_land_use_streets.png)
+
+1. **Street graph.** Every street segment became an edge of a `networkx` graph, weighted by its length. All-pairs Dijkstra gave an origin–destination cost matrix between street nodes.
+2. **Parcels to the network.** Each parcel's centroid was linked to its nearest street node with a KD-tree.
+
+   ![Parcels and their nearest street nodes](figures/part2_orig_02_nearest_nodes.png)
+
+3. **Network service areas.** From a parcel's street node, Dijkstra with distance cut-offs gave the nodes reachable within 0–50, 50–100, 100–150 and 150–200 m. A parcel belongs to a band when its own nearest node falls in that band.
+
+   ![Network distance bands around one parcel](figures/part2_orig_03_service_area_bands.png)
+
+4. **Area-weighted enrichment factors.** For a sample of 50 parcels, the area of each land use in each band was pooled per land use of the central parcel and turned into enrichment factors, now weighted by **parcel area** instead of pixel counts.
+5. Several further steps were explored: mapping a "neighbourhood effect" back onto every parcel, extending the analysis to all 5,797 parcels, and clustering the land uses by their enrichment profiles (distance matrix, dendrogram, MDS).
+
+### Review (2026)
+
+Steps 1–3 are sound, and network distance is a genuine improvement over straight-line rings for urban land use. Parts of the rest did not work, and the notebook is published as the exploratory working file it was:
+
+- **The final effect maps carry no information.** In the "neighbourhood effect" maps, every parcel receives the same value per panel; a single number per land use was assigned to all parcels instead of computing an effect for each parcel. One attempt shows that all 2,907 values are 0.
+
+  ![Uniform effect maps](figures/part2_orig_04_uniform_effect_maps.png)
+
+- **Several different quantities are called "enrichment factor".** Some later cells compute the share of a land use's area within a buffer around *any street*, which is high for almost every class in a dense street grid and says little about neighbours. Those are not enrichment factors.
+- **The denominator came from the neighbourhoods, not the study area.** The "global" share was computed from the pooled neighbourhoods themselves, with vacant land included in the total but excluded from the bands.
+- **Each sample parcel was counted in its own 0–50 m band.** This inflates every same-class value at the shortest distance.
+- **The sample is the first 50 rows of the table**, clustered in the east of the district: 29 residential, 13 commercial, 5 park, 1 services, 2 vacant and no industrial parcel. The full run over all parcels was started but not completed.
+
+### Recomputed sample enrichment factors
+
+The notebook saved the pooled area of every land use in every band, the area of each sample parcel, and the whole-study-area totals. That is enough to recompute the sample enrichment factors **exactly**, with the study-area denominator and without each parcel counting itself:
+
+$$F_{k,b} = \frac{A_{k,b} / A_b}{A_k / A} \qquad \text{(vacant land excluded throughout)}$$
+
+[`corrected/part2_network_sample_ef.py`](corrected/part2_network_sample_ef.py) reads those saved outputs and draws the comparison:
+
+![Part 2: original vs corrected](figures/02_part2_network_ef_corrected.png)
+
+Read this as a **small-sample illustration**, not a result for the district. Panels based on 5 parks or a single services parcel are anecdotes, and industrial land is only 0.1% of the area, so its values are unstable. With that caveat, the corrections change some readings:
+
+- **Commercial clusters with commercial** (F ≈ 2.9 in the first 50 m), and this survives removing each parcel from its own band, so it is not an artefact.
+- **"Parks attract parks" was an artefact.** The original F ≈ 3 at 0–50 m came entirely from each park counting itself. Corrected, there is no other park within 50 m of any sampled park.
+- **Commercial land sits close to parks** (F ≈ 3.9 at 0–50 m), and **parks appear around commercial parcels from 50 m outward**. The original denominator understated both.
+- **Residential parcels are surrounded by residential land at about the study-area rate** (F ≈ 1). That is expected when about 80% of the non-vacant area is residential.
+
+### What a complete version would need
+
+- Compute enrichment factors per parcel, with the study area as denominator, then map the per-parcel values. This produces a real neighbourhood-effect surface instead of one number per class.
+- Use **all parcels**, or a random stratified sample with enough parcels of each class, and report n per curve.
+- Assign neighbours by network distance to the parcel itself (for example, to the nearest point on the street that parcel fronts), not via the nearest node, and exclude the central parcel.
+- Compute the service areas once per street node and reuse them; the per-parcel Dijkstra runs are what made the full run too slow to finish.
+
 ## Repository contents
 
 ```
-original/land_use_enrichment_factor_2024.ipynb  # the full analysis, as written in 2024 (Persian explanations)
-corrected/correct_denominator.py                 # exact denominator correction from the notebook's saved outputs
-figures/                                         # figures used in this README
+original/land_use_enrichment_factor_2024.ipynb                  # Part 1, as written in 2024 (Persian explanations)
+original/part2_network/network_enrichment_factor_2024.ipynb    # Part 2, the exploratory working notebook as written in 2024
+corrected/correct_denominator.py                                 # Part 1: exact denominator correction from saved outputs
+corrected/part2_network_sample_ef.py                             # Part 2: sample enrichment factors recomputed from saved outputs
+figures/                                                         # figures used in this README
 ```
 
-The land-use rasters are not included. To reproduce the corrected figure:
+The land-use rasters and vector data are not included. To reproduce the corrected figures:
 
 ```bash
 pip install -r requirements.txt
 python corrected/correct_denominator.py
+python corrected/part2_network_sample_ef.py
 ```
 
 ## References
