@@ -1,0 +1,16 @@
+# Data (confidential - never commit)
+*.tif
+*.tiff
+*.csv
+*.shp
+*.shx
+*.dbf
+*.prj
+data/
+
+# Python / Jupyter
+__pycache__/
+.ipynb_checkpoints/
+.venv/
+.env
+.DS_Store
